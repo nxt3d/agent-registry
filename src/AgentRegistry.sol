@@ -2,6 +2,7 @@
 pragma solidity ^0.8.25;
 
 import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
+import {Initializable} from "@openzeppelin/contracts/proxy/utils/Initializable.sol";
 import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
 import {IAgentRegistry} from "./interfaces/IAgentRegistry.sol";
 import {ERC8048} from "./extensions/ERC8048.sol";
@@ -12,8 +13,9 @@ import {IERC8049} from "./interfaces/IERC8049.sol";
 /// @title AgentRegistry
 /// @notice A minimal onchain registry for discovering AI agents
 /// @dev Implements ERC-6909 with single ownership, ERC-8048 metadata, ERC-8049 contract metadata,
-///      and uses AccessControl for contract-level permissions with ERC-6909-style token authorization
-contract AgentRegistry is IAgentRegistry, AccessControl, ERC8048, ERC8049 {
+///      and uses AccessControl for contract-level permissions with ERC-6909-style token authorization.
+///      Supports both standalone deployment and minimal clone (EIP-1167) deployment.
+contract AgentRegistry is IAgentRegistry, AccessControl, Initializable, ERC8048, ERC8049 {
     /* --- Constants --- */
 
     /// @notice Role for registering new agents
@@ -55,11 +57,21 @@ contract AgentRegistry is IAgentRegistry, AccessControl, ERC8048, ERC8049 {
 
     /* --- Constructor --- */
 
-    /// @notice Initialize the registry with the deployer as admin
+    /// @notice Initialize the registry with the deployer as admin (standalone deployment)
+    /// @dev Disables initializers to prevent re-initialization when used as implementation
     constructor() {
         _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
         _grantRole(REGISTRAR_ROLE, msg.sender);
         _grantRole(METADATA_ADMIN_ROLE, msg.sender);
+        _disableInitializers();
+    }
+
+    /// @notice Initialize the registry (for clone deployment)
+    /// @param admin The address to receive all admin roles
+    function initialize(address admin) external initializer {
+        _grantRole(DEFAULT_ADMIN_ROLE, admin);
+        _grantRole(REGISTRAR_ROLE, admin);
+        _grantRole(METADATA_ADMIN_ROLE, admin);
     }
 
     /* --- ERC-165 --- */
