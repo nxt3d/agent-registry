@@ -1,23 +1,15 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.25;
 
+import {IERC6909} from "@openzeppelin/contracts/interfaces/IERC6909.sol";
 import {IERC8048} from "./IERC8048.sol";
 import {IERC8049} from "./IERC8049.sol";
 
 /// @title IAgentRegistry
 /// @notice Interface for the Minimal Agent Registry
 /// @dev Extends ERC-6909 with ERC-8048 onchain metadata and ERC-8049 contract metadata
-interface IAgentRegistry is IERC8048, IERC8049 {
+interface IAgentRegistry is IERC6909, IERC8048, IERC8049 {
     /* --- Events --- */
-
-    /// @notice ERC-6909 Transfer event
-    event Transfer(address caller, address indexed sender, address indexed receiver, uint256 indexed id, uint256 amount);
-
-    /// @notice ERC-6909 OperatorSet event
-    event OperatorSet(address indexed owner, address indexed spender, bool approved);
-
-    /// @notice ERC-6909 Approval event
-    event Approval(address indexed owner, address indexed spender, uint256 indexed id, uint256 amount);
 
     /// @notice Emitted when an agent is registered
     /// @param agentId The ID of the registered agent
@@ -34,29 +26,6 @@ interface IAgentRegistry is IERC8048, IERC8049 {
         string key;
         bytes value;
     }
-
-    /* --- ERC-6909 Functions --- */
-
-    /// @notice Get the balance of a token for an owner
-    function balanceOf(address owner, uint256 id) external view returns (uint256);
-
-    /// @notice Get the allowance of a spender for a specific token
-    function allowance(address owner, address spender, uint256 id) external view returns (uint256);
-
-    /// @notice Check if an address is an operator for an owner
-    function isOperator(address owner, address spender) external view returns (bool);
-
-    /// @notice Transfer a token
-    function transfer(address receiver, uint256 id, uint256 amount) external returns (bool);
-
-    /// @notice Transfer a token from one address to another
-    function transferFrom(address sender, address receiver, uint256 id, uint256 amount) external returns (bool);
-
-    /// @notice Approve a spender for a specific token
-    function approve(address spender, uint256 id, uint256 amount) external returns (bool);
-
-    /// @notice Set operator approval for all tokens
-    function setOperator(address spender, bool approved) external returns (bool);
 
     /* --- Agent Registry Functions --- */
 

@@ -76,7 +76,7 @@ An optional companion contract for public minting with economic controls.
 |---------|-------------|
 | **Mint Price** | Configurable ETH price per mint (0 = free) |
 | **Max Supply** | Optional cap on total agents (0 = unlimited) |
-| **Open/Close** | Owner can open/close public minting |
+| **Open/Close** | Owner can open/close public minting (starts **closed** by default) |
 | **Lock Bits** | Permanently lock specific settings |
 | **Metadata Minting** | Set agent metadata during mint |
 | **Batch Minting** | Mint multiple agents in one transaction |

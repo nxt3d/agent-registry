@@ -84,6 +84,36 @@ contract AgentRegistryFactory {
         emit RegistryDeployed(registry, admin, bytes32(0));
     }
 
+    /// @notice Deploy a new AgentRegistry clone with a name
+    /// @param admin The address to receive all admin roles in the new registry
+    /// @param name The name for the registry (stored as ERC-8049 contract metadata)
+    /// @return registry The address of the newly deployed registry
+    function deployRegistry(address admin, string calldata name) external returns (address registry) {
+        registry = registryImplementation.clone();
+        AgentRegistry reg = AgentRegistry(registry);
+        
+        // Initialize with factory as admin so we can set metadata
+        reg.initialize(address(this));
+        
+        // Set the name metadata
+        reg.setContractMetadata("name", bytes(name));
+        
+        // Grant all roles to admin
+        reg.grantRole(reg.DEFAULT_ADMIN_ROLE(), admin);
+        reg.grantRole(reg.REGISTRAR_ROLE(), admin);
+        reg.grantRole(reg.METADATA_ADMIN_ROLE(), admin);
+        
+        // Renounce factory's roles
+        reg.renounceRole(reg.DEFAULT_ADMIN_ROLE(), address(this));
+        reg.renounceRole(reg.REGISTRAR_ROLE(), address(this));
+        reg.renounceRole(reg.METADATA_ADMIN_ROLE(), address(this));
+        
+        deployedRegistries.push(registry);
+        isDeployedRegistry[registry] = true;
+        
+        emit RegistryDeployed(registry, admin, bytes32(0));
+    }
+
     /// @notice Deploy a new AgentRegistry clone with a deterministic address
     /// @param admin The address to receive all admin roles in the new registry
     /// @param salt The salt for deterministic address generation
@@ -91,6 +121,37 @@ contract AgentRegistryFactory {
     function deployRegistryDeterministic(address admin, bytes32 salt) external returns (address registry) {
         registry = registryImplementation.cloneDeterministic(salt);
         AgentRegistry(registry).initialize(admin);
+        
+        deployedRegistries.push(registry);
+        isDeployedRegistry[registry] = true;
+        
+        emit RegistryDeployed(registry, admin, salt);
+    }
+
+    /// @notice Deploy a new AgentRegistry clone with a deterministic address and a name
+    /// @param admin The address to receive all admin roles in the new registry
+    /// @param salt The salt for deterministic address generation
+    /// @param name The name for the registry (stored as ERC-8049 contract metadata)
+    /// @return registry The address of the newly deployed registry
+    function deployRegistryDeterministic(address admin, bytes32 salt, string calldata name) external returns (address registry) {
+        registry = registryImplementation.cloneDeterministic(salt);
+        AgentRegistry reg = AgentRegistry(registry);
+        
+        // Initialize with factory as admin so we can set metadata
+        reg.initialize(address(this));
+        
+        // Set the name metadata
+        reg.setContractMetadata("name", bytes(name));
+        
+        // Grant all roles to admin
+        reg.grantRole(reg.DEFAULT_ADMIN_ROLE(), admin);
+        reg.grantRole(reg.REGISTRAR_ROLE(), admin);
+        reg.grantRole(reg.METADATA_ADMIN_ROLE(), admin);
+        
+        // Renounce factory's roles
+        reg.renounceRole(reg.DEFAULT_ADMIN_ROLE(), address(this));
+        reg.renounceRole(reg.REGISTRAR_ROLE(), address(this));
+        reg.renounceRole(reg.METADATA_ADMIN_ROLE(), address(this));
         
         deployedRegistries.push(registry);
         isDeployedRegistry[registry] = true;
@@ -171,6 +232,59 @@ contract AgentRegistryFactory {
         emit RegistryAndRegistrarDeployed(registry, registrar, admin);
     }
 
+    /// @notice Deploy both a registry and registrar together with a name
+    /// @param admin The admin for the registry and owner of the registrar
+    /// @param mintPrice Price per mint in wei (0 = free)
+    /// @param maxSupply Maximum supply (0 = unlimited)
+    /// @param name The name for the registry (stored as ERC-8049 contract metadata)
+    /// @return registry The address of the deployed registry
+    /// @return registrar The address of the deployed registrar
+    function deploy(
+        address admin,
+        uint256 mintPrice,
+        uint256 maxSupply,
+        string calldata name
+    ) external returns (address registry, address registrar) {
+        // Deploy registry with factory as initial admin
+        registry = registryImplementation.clone();
+        AgentRegistry reg = AgentRegistry(registry);
+        reg.initialize(address(this));
+        
+        deployedRegistries.push(registry);
+        isDeployedRegistry[registry] = true;
+        
+        // Set the name metadata
+        reg.setContractMetadata("name", bytes(name));
+        
+        // Deploy registrar
+        registrar = registrarImplementation.clone();
+        AgentRegistrar(payable(registrar)).initialize(
+            reg,
+            mintPrice,
+            maxSupply,
+            admin
+        );
+        
+        deployedRegistrars.push(registrar);
+        isDeployedRegistrar[registrar] = true;
+        registryToRegistrar[registry] = registrar;
+        
+        // Grant roles: REGISTRAR_ROLE to registrar, all roles to admin
+        reg.grantRole(reg.REGISTRAR_ROLE(), registrar);
+        reg.grantRole(reg.DEFAULT_ADMIN_ROLE(), admin);
+        reg.grantRole(reg.REGISTRAR_ROLE(), admin);
+        reg.grantRole(reg.METADATA_ADMIN_ROLE(), admin);
+        
+        // Renounce factory's admin role
+        reg.renounceRole(reg.DEFAULT_ADMIN_ROLE(), address(this));
+        reg.renounceRole(reg.REGISTRAR_ROLE(), address(this));
+        reg.renounceRole(reg.METADATA_ADMIN_ROLE(), address(this));
+        
+        emit RegistryDeployed(registry, admin, bytes32(0));
+        emit RegistrarDeployed(registrar, registry, admin);
+        emit RegistryAndRegistrarDeployed(registry, registrar, admin);
+    }
+
     /// @notice Deploy both a registry and registrar with deterministic addresses
     /// @param admin The admin for the registry and owner of the registrar
     /// @param mintPrice Price per mint in wei (0 = free)
@@ -208,6 +322,63 @@ contract AgentRegistryFactory {
         
         // Grant roles: REGISTRAR_ROLE to registrar, all roles to admin
         AgentRegistry reg = AgentRegistry(registry);
+        reg.grantRole(reg.REGISTRAR_ROLE(), registrar);
+        reg.grantRole(reg.DEFAULT_ADMIN_ROLE(), admin);
+        reg.grantRole(reg.REGISTRAR_ROLE(), admin);
+        reg.grantRole(reg.METADATA_ADMIN_ROLE(), admin);
+        
+        // Renounce factory's admin role
+        reg.renounceRole(reg.DEFAULT_ADMIN_ROLE(), address(this));
+        reg.renounceRole(reg.REGISTRAR_ROLE(), address(this));
+        reg.renounceRole(reg.METADATA_ADMIN_ROLE(), address(this));
+        
+        emit RegistryDeployed(registry, admin, registrySalt);
+        emit RegistrarDeployed(registrar, registry, admin);
+        emit RegistryAndRegistrarDeployed(registry, registrar, admin);
+    }
+
+    /// @notice Deploy both a registry and registrar with deterministic addresses and a name
+    /// @param admin The admin for the registry and owner of the registrar
+    /// @param mintPrice Price per mint in wei (0 = free)
+    /// @param maxSupply Maximum supply (0 = unlimited)
+    /// @param registrySalt Salt for registry address
+    /// @param registrarSalt Salt for registrar address
+    /// @param name The name for the registry (stored as ERC-8049 contract metadata)
+    /// @return registry The address of the deployed registry
+    /// @return registrar The address of the deployed registrar
+    function deployDeterministic(
+        address admin,
+        uint256 mintPrice,
+        uint256 maxSupply,
+        bytes32 registrySalt,
+        bytes32 registrarSalt,
+        string calldata name
+    ) external returns (address registry, address registrar) {
+        // Deploy registry with factory as initial admin
+        registry = registryImplementation.cloneDeterministic(registrySalt);
+        AgentRegistry reg = AgentRegistry(registry);
+        reg.initialize(address(this));
+        
+        deployedRegistries.push(registry);
+        isDeployedRegistry[registry] = true;
+        
+        // Set the name metadata
+        reg.setContractMetadata("name", bytes(name));
+        
+        // Deploy registrar
+        registrar = registrarImplementation.cloneDeterministic(registrarSalt);
+        AgentRegistrar(payable(registrar)).initialize(
+            reg,
+            mintPrice,
+            maxSupply,
+            admin
+        );
+        
+        deployedRegistrars.push(registrar);
+        isDeployedRegistrar[registrar] = true;
+        registryToRegistrar[registry] = registrar;
+        
+        // Grant roles: REGISTRAR_ROLE to registrar, all roles to admin
         reg.grantRole(reg.REGISTRAR_ROLE(), registrar);
         reg.grantRole(reg.DEFAULT_ADMIN_ROLE(), admin);
         reg.grantRole(reg.REGISTRAR_ROLE(), admin);

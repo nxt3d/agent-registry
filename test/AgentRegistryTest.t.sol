@@ -4,6 +4,7 @@ pragma solidity ^0.8.25;
 import "forge-std/Test.sol";
 import "../src/AgentRegistry.sol";
 import "../src/interfaces/IAgentRegistry.sol";
+import {IERC6909} from "@openzeppelin/contracts/interfaces/IERC6909.sol";
 import {IERC8048} from "../src/interfaces/IERC8048.sol";
 import {IERC8049} from "../src/interfaces/IERC8049.sol";
 import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
@@ -432,7 +433,7 @@ contract AgentRegistryTest is Test {
     function test_038____events____TransferEventEmittedOnMint() public {
         vm.prank(REGISTRAR);
         vm.expectEmit(true, true, true, true);
-        emit IAgentRegistry.Transfer(REGISTRAR, address(0), OWNER1, 0, 1);
+        emit IERC6909.Transfer(REGISTRAR, address(0), OWNER1, 0, 1);
         
         registry.register(OWNER1, "mcp", "https://agent.example.com", AGENT_ACCOUNT1);
     }

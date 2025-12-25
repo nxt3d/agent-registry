@@ -4,6 +4,7 @@ pragma solidity ^0.8.25;
 import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
 import {Initializable} from "@openzeppelin/contracts/proxy/utils/Initializable.sol";
 import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
+import {IERC6909} from "@openzeppelin/contracts/interfaces/IERC6909.sol";
 import {IAgentRegistry} from "./interfaces/IAgentRegistry.sol";
 import {ERC8048} from "./extensions/ERC8048.sol";
 import {ERC8049} from "./extensions/ERC8049.sol";
@@ -77,9 +78,9 @@ contract AgentRegistry is IAgentRegistry, AccessControl, Initializable, ERC8048,
     /* --- ERC-165 --- */
 
     /// @inheritdoc IERC165
-    function supportsInterface(bytes4 interfaceId) public view override(AccessControl) returns (bool) {
+    function supportsInterface(bytes4 interfaceId) public view override(AccessControl, IERC165) returns (bool) {
         return
-            interfaceId == 0x0f632fb3 || // ERC-6909 interface ID
+            interfaceId == type(IERC6909).interfaceId ||
             interfaceId == type(IERC8048).interfaceId ||
             interfaceId == type(IERC8049).interfaceId ||
             super.supportsInterface(interfaceId);
@@ -87,12 +88,12 @@ contract AgentRegistry is IAgentRegistry, AccessControl, Initializable, ERC8048,
 
     /* --- ERC-6909 View Functions --- */
 
-    /// @inheritdoc IAgentRegistry
+    /// @inheritdoc IERC6909
     function balanceOf(address owner, uint256 id) public view returns (uint256) {
         return _owners[id] == owner ? 1 : 0;
     }
 
-    /// @inheritdoc IAgentRegistry
+    /// @inheritdoc IERC6909
     function allowance(address owner, address spender, uint256 id) public view returns (uint256) {
         return _approvals[owner][spender][id] ? 1 : 0;
     }
@@ -106,7 +107,7 @@ contract AgentRegistry is IAgentRegistry, AccessControl, Initializable, ERC8048,
 
     /* --- ERC-6909 Transfer Functions --- */
 
-    /// @inheritdoc IAgentRegistry
+    /// @inheritdoc IERC6909
     function transfer(address receiver, uint256 id, uint256 amount) public returns (bool) {
         if (amount != 1) revert InvalidAmount();
         if (_owners[id] != msg.sender) revert InsufficientBalance(msg.sender, id);
@@ -117,7 +118,7 @@ contract AgentRegistry is IAgentRegistry, AccessControl, Initializable, ERC8048,
         return true;
     }
 
-    /// @inheritdoc IAgentRegistry
+    /// @inheritdoc IERC6909
     function transferFrom(address sender, address receiver, uint256 id, uint256 amount) public returns (bool) {
         if (amount != 1) revert InvalidAmount();
 
@@ -132,7 +133,7 @@ contract AgentRegistry is IAgentRegistry, AccessControl, Initializable, ERC8048,
 
     /* --- ERC-6909 Approval Functions --- */
 
-    /// @inheritdoc IAgentRegistry
+    /// @inheritdoc IERC6909
     /// @dev Any non-zero amount grants approval (stored as true), zero revokes it (stored as false)
     function approve(address spender, uint256 id, uint256 amount) public returns (bool) {
         bool approved = amount > 0;
@@ -141,7 +142,7 @@ contract AgentRegistry is IAgentRegistry, AccessControl, Initializable, ERC8048,
         return true;
     }
 
-    /// @inheritdoc IAgentRegistry
+    /// @inheritdoc IERC6909
     function setOperator(address spender, bool approved) public returns (bool) {
         isOperator[msg.sender][spender] = approved;
         emit OperatorSet(msg.sender, spender, approved);

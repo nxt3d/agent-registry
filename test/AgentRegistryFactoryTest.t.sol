@@ -592,6 +592,393 @@ contract AgentRegistryFactoryTest is Test {
     }
     
     /* ============================================================== */
+    /*              REGISTRY DEPLOYMENT WITH NAME                     */
+    /* ============================================================== */
+    
+    function test_100____deployRegistryWithName____SetsNameMetadata() public {
+        string memory name = "My Test Registry";
+        address registry = factory.deployRegistry(ADMIN1, name);
+        
+        AgentRegistry reg = AgentRegistry(registry);
+        bytes memory nameBytes = reg.getContractMetadata("name");
+        assertEq(string(nameBytes), name, "Name should be set correctly");
+    }
+    
+    function test_101____deployRegistryWithName____InitializesWithAdmin() public {
+        address registry = factory.deployRegistry(ADMIN1, "Test Registry");
+        AgentRegistry reg = AgentRegistry(registry);
+        
+        assertTrue(
+            reg.hasRole(reg.DEFAULT_ADMIN_ROLE(), ADMIN1),
+            "Admin should have DEFAULT_ADMIN_ROLE"
+        );
+        assertTrue(
+            reg.hasRole(reg.REGISTRAR_ROLE(), ADMIN1),
+            "Admin should have REGISTRAR_ROLE"
+        );
+        assertTrue(
+            reg.hasRole(reg.METADATA_ADMIN_ROLE(), ADMIN1),
+            "Admin should have METADATA_ADMIN_ROLE"
+        );
+    }
+    
+    function test_102____deployRegistryWithName____FactoryRolesRenounced() public {
+        address registry = factory.deployRegistry(ADMIN1, "Test Registry");
+        AgentRegistry reg = AgentRegistry(registry);
+        
+        assertFalse(
+            reg.hasRole(reg.DEFAULT_ADMIN_ROLE(), address(factory)),
+            "Factory should not have DEFAULT_ADMIN_ROLE"
+        );
+        assertFalse(
+            reg.hasRole(reg.REGISTRAR_ROLE(), address(factory)),
+            "Factory should not have REGISTRAR_ROLE"
+        );
+        assertFalse(
+            reg.hasRole(reg.METADATA_ADMIN_ROLE(), address(factory)),
+            "Factory should not have METADATA_ADMIN_ROLE"
+        );
+    }
+    
+    function test_103____deployRegistryWithName____TracksDeployedRegistry() public {
+        address registry = factory.deployRegistry(ADMIN1, "Test Registry");
+        
+        assertEq(factory.getDeployedRegistriesCount(), 1, "Should have 1 deployed registry");
+        assertEq(factory.deployedRegistries(0), registry, "Registry should be tracked");
+        assertTrue(factory.isDeployedRegistry(registry), "Should be marked as deployed");
+    }
+    
+    function test_104____deployRegistryWithName____CanSetOtherMetadata() public {
+        address registry = factory.deployRegistry(ADMIN1, "Test Registry");
+        AgentRegistry reg = AgentRegistry(registry);
+        
+        // Admin should be able to set other metadata
+        vm.prank(ADMIN1);
+        reg.setContractMetadata("description", bytes("A test registry"));
+        
+        bytes memory desc = reg.getContractMetadata("description");
+        assertEq(string(desc), "A test registry", "Should be able to set other metadata");
+    }
+    
+    function test_105____deployRegistryWithName____CanRegisterAgents() public {
+        address registry = factory.deployRegistry(ADMIN1, "Test Registry");
+        AgentRegistry reg = AgentRegistry(registry);
+        
+        vm.prank(ADMIN1);
+        uint256 agentId = reg.register(OWNER1, "mcp", "https://example.com/agent", AGENT_ACCOUNT1);
+        
+        assertEq(agentId, 0, "First agent ID should be 0");
+        assertEq(reg.ownerOf(0), OWNER1, "Owner should be set");
+    }
+    
+    /* ============================================================== */
+    /*         DETERMINISTIC REGISTRY DEPLOYMENT WITH NAME            */
+    /* ============================================================== */
+    
+    function test_110____deployRegistryDeterministicWithName____SetsNameMetadata() public {
+        bytes32 salt = keccak256("test-salt");
+        string memory name = "Deterministic Registry";
+        address registry = factory.deployRegistryDeterministic(ADMIN1, salt, name);
+        
+        AgentRegistry reg = AgentRegistry(registry);
+        bytes memory nameBytes = reg.getContractMetadata("name");
+        assertEq(string(nameBytes), name, "Name should be set correctly");
+    }
+    
+    function test_111____deployRegistryDeterministicWithName____AddressMatchesPrediction() public {
+        bytes32 salt = keccak256("deterministic-name-test");
+        
+        address predicted = factory.predictRegistryAddress(salt);
+        address deployed = factory.deployRegistryDeterministic(ADMIN1, salt, "Test Name");
+        
+        assertEq(deployed, predicted, "Deployed address should match prediction");
+    }
+    
+    function test_112____deployRegistryDeterministicWithName____InitializesWithAdmin() public {
+        bytes32 salt = keccak256("admin-test");
+        address registry = factory.deployRegistryDeterministic(ADMIN1, salt, "Test");
+        AgentRegistry reg = AgentRegistry(registry);
+        
+        assertTrue(
+            reg.hasRole(reg.DEFAULT_ADMIN_ROLE(), ADMIN1),
+            "Admin should have DEFAULT_ADMIN_ROLE"
+        );
+    }
+    
+    function test_113____deployRegistryDeterministicWithName____FactoryRolesRenounced() public {
+        bytes32 salt = keccak256("renounce-test");
+        address registry = factory.deployRegistryDeterministic(ADMIN1, salt, "Test");
+        AgentRegistry reg = AgentRegistry(registry);
+        
+        assertFalse(
+            reg.hasRole(reg.DEFAULT_ADMIN_ROLE(), address(factory)),
+            "Factory should not have DEFAULT_ADMIN_ROLE"
+        );
+    }
+    
+    /* ============================================================== */
+    /*         COMBINED DEPLOYMENT WITH NAME (REGISTRY + REGISTRAR)   */
+    /* ============================================================== */
+    
+    function test_120____combinedDeployWithName____SetsNameMetadata() public {
+        string memory name = "Combined Registry";
+        (address registry, address registrar) = factory.deploy(ADMIN1, 0.01 ether, 1000, name);
+        
+        AgentRegistry reg = AgentRegistry(registry);
+        bytes memory nameBytes = reg.getContractMetadata("name");
+        assertEq(string(nameBytes), name, "Name should be set correctly");
+        
+        assertNotEq(registrar, address(0), "Registrar should be deployed");
+    }
+    
+    function test_121____combinedDeployWithName____DeploysBothContracts() public {
+        (address registry, address registrar) = factory.deploy(ADMIN1, 0.01 ether, 1000, "Test Registry");
+        
+        assertNotEq(registry, address(0), "Registry should be deployed");
+        assertNotEq(registrar, address(0), "Registrar should be deployed");
+        assertTrue(registry.code.length > 0, "Registry should have code");
+        assertTrue(registrar.code.length > 0, "Registrar should have code");
+    }
+    
+    function test_122____combinedDeployWithName____RegistrarLinkedToRegistry() public {
+        (address registry, address registrar) = factory.deploy(ADMIN1, 0.01 ether, 1000, "Test");
+        
+        AgentRegistrar reg = AgentRegistrar(payable(registrar));
+        assertEq(address(reg.registry()), registry, "Registrar should point to registry");
+    }
+    
+    function test_123____combinedDeployWithName____RegistrarHasCorrectConfig() public {
+        uint256 mintPrice = 0.05 ether;
+        uint256 maxSupply = 500;
+        
+        (, address registrar) = factory.deploy(ADMIN1, mintPrice, maxSupply, "Test Registry");
+        
+        AgentRegistrar reg = AgentRegistrar(payable(registrar));
+        assertEq(reg.mintPrice(), mintPrice, "Mint price should be set");
+        assertEq(reg.maxSupply(), maxSupply, "Max supply should be set");
+        assertEq(reg.owner(), ADMIN1, "Owner should be admin");
+    }
+    
+    function test_124____combinedDeployWithName____AdminHasAllRoles() public {
+        (address registry, ) = factory.deploy(ADMIN1, 0.01 ether, 1000, "Test Registry");
+        AgentRegistry reg = AgentRegistry(registry);
+        
+        assertTrue(
+            reg.hasRole(reg.DEFAULT_ADMIN_ROLE(), ADMIN1),
+            "Admin should have DEFAULT_ADMIN_ROLE"
+        );
+        assertTrue(
+            reg.hasRole(reg.REGISTRAR_ROLE(), ADMIN1),
+            "Admin should have REGISTRAR_ROLE"
+        );
+        assertTrue(
+            reg.hasRole(reg.METADATA_ADMIN_ROLE(), ADMIN1),
+            "Admin should have METADATA_ADMIN_ROLE"
+        );
+    }
+    
+    function test_125____combinedDeployWithName____FactoryRolesRenounced() public {
+        (address registry, ) = factory.deploy(ADMIN1, 0.01 ether, 1000, "Test Registry");
+        AgentRegistry reg = AgentRegistry(registry);
+        
+        assertFalse(
+            reg.hasRole(reg.DEFAULT_ADMIN_ROLE(), address(factory)),
+            "Factory should not have DEFAULT_ADMIN_ROLE"
+        );
+        assertFalse(
+            reg.hasRole(reg.REGISTRAR_ROLE(), address(factory)),
+            "Factory should not have REGISTRAR_ROLE"
+        );
+        assertFalse(
+            reg.hasRole(reg.METADATA_ADMIN_ROLE(), address(factory)),
+            "Factory should not have METADATA_ADMIN_ROLE"
+        );
+    }
+    
+    function test_126____combinedDeployWithName____CanMintThroughRegistrar() public {
+        (address registry, address registrar) = factory.deploy(ADMIN1, 0.01 ether, 1000, "Test Registry");
+        
+        AgentRegistrar reg = AgentRegistrar(payable(registrar));
+        AgentRegistry agentReg = AgentRegistry(registry);
+        
+        // Open minting
+        vm.prank(ADMIN1);
+        reg.openMinting();
+        
+        // Mint an agent
+        vm.deal(OWNER1, 1 ether);
+        vm.prank(OWNER1);
+        uint256 agentId = reg.mint{value: 0.01 ether}();
+        
+        assertEq(agentId, 0, "First agent ID should be 0");
+        assertEq(agentReg.ownerOf(0), OWNER1, "Owner should be OWNER1");
+    }
+    
+    function test_127____combinedDeployWithName____TracksBothContracts() public {
+        (address registry, address registrar) = factory.deploy(ADMIN1, 0.01 ether, 1000, "Test Registry");
+        
+        assertEq(factory.getDeployedRegistriesCount(), 1, "Should have 1 registry");
+        assertEq(factory.getDeployedRegistrarsCount(), 1, "Should have 1 registrar");
+        assertTrue(factory.isDeployedRegistry(registry), "Registry should be tracked");
+        assertTrue(factory.isDeployedRegistrar(registrar), "Registrar should be tracked");
+        assertEq(factory.registryToRegistrar(registry), registrar, "Mapping should be set");
+    }
+    
+    /* ============================================================== */
+    /*    DETERMINISTIC COMBINED DEPLOYMENT WITH NAME                 */
+    /* ============================================================== */
+    
+    function test_130____deployDeterministicWithName____SetsNameMetadata() public {
+        bytes32 registrySalt = keccak256("registry-salt");
+        bytes32 registrarSalt = keccak256("registrar-salt");
+        string memory name = "Deterministic Combined Registry";
+        
+        (address registry, ) = factory.deployDeterministic(
+            ADMIN1,
+            0.01 ether,
+            1000,
+            registrySalt,
+            registrarSalt,
+            name
+        );
+        
+        AgentRegistry reg = AgentRegistry(registry);
+        bytes memory nameBytes = reg.getContractMetadata("name");
+        assertEq(string(nameBytes), name, "Name should be set correctly");
+    }
+    
+    function test_131____deployDeterministicWithName____AddressMatchesPrediction() public {
+        bytes32 registrySalt = keccak256("registry-prediction");
+        bytes32 registrarSalt = keccak256("registrar-prediction");
+        
+        address predicted = factory.predictRegistryAddress(registrySalt);
+        (address deployed, ) = factory.deployDeterministic(
+            ADMIN1,
+            0.01 ether,
+            1000,
+            registrySalt,
+            registrarSalt,
+            "Test Name"
+        );
+        
+        assertEq(deployed, predicted, "Deployed address should match prediction");
+    }
+    
+    function test_132____deployDeterministicWithName____DeploysBothContracts() public {
+        bytes32 registrySalt = keccak256("both-contracts");
+        bytes32 registrarSalt = keccak256("both-contracts-registrar");
+        
+        (address registry, address registrar) = factory.deployDeterministic(
+            ADMIN1,
+            0.01 ether,
+            1000,
+            registrySalt,
+            registrarSalt,
+            "Test Registry"
+        );
+        
+        assertNotEq(registry, address(0), "Registry should be deployed");
+        assertNotEq(registrar, address(0), "Registrar should be deployed");
+    }
+    
+    function test_133____deployDeterministicWithName____RegistrarHasCorrectConfig() public {
+        bytes32 registrySalt = keccak256("config-test");
+        bytes32 registrarSalt = keccak256("config-test-registrar");
+        uint256 mintPrice = 0.05 ether;
+        uint256 maxSupply = 500;
+        
+        (, address registrar) = factory.deployDeterministic(
+            ADMIN1,
+            mintPrice,
+            maxSupply,
+            registrySalt,
+            registrarSalt,
+            "Test Registry"
+        );
+        
+        AgentRegistrar reg = AgentRegistrar(payable(registrar));
+        assertEq(reg.mintPrice(), mintPrice, "Mint price should be set");
+        assertEq(reg.maxSupply(), maxSupply, "Max supply should be set");
+    }
+    
+    function test_134____deployDeterministicWithName____AdminHasAllRoles() public {
+        bytes32 registrySalt = keccak256("roles-test");
+        bytes32 registrarSalt = keccak256("roles-test-registrar");
+        
+        (address registry, ) = factory.deployDeterministic(
+            ADMIN1,
+            0.01 ether,
+            1000,
+            registrySalt,
+            registrarSalt,
+            "Test Registry"
+        );
+        
+        AgentRegistry reg = AgentRegistry(registry);
+        assertTrue(
+            reg.hasRole(reg.DEFAULT_ADMIN_ROLE(), ADMIN1),
+            "Admin should have DEFAULT_ADMIN_ROLE"
+        );
+        assertTrue(
+            reg.hasRole(reg.REGISTRAR_ROLE(), ADMIN1),
+            "Admin should have REGISTRAR_ROLE"
+        );
+        assertTrue(
+            reg.hasRole(reg.METADATA_ADMIN_ROLE(), ADMIN1),
+            "Admin should have METADATA_ADMIN_ROLE"
+        );
+    }
+    
+    function test_135____deployDeterministicWithName____FactoryRolesRenounced() public {
+        bytes32 registrySalt = keccak256("renounce-deterministic");
+        bytes32 registrarSalt = keccak256("renounce-deterministic-registrar");
+        
+        (address registry, ) = factory.deployDeterministic(
+            ADMIN1,
+            0.01 ether,
+            1000,
+            registrySalt,
+            registrarSalt,
+            "Test Registry"
+        );
+        
+        AgentRegistry reg = AgentRegistry(registry);
+        assertFalse(
+            reg.hasRole(reg.DEFAULT_ADMIN_ROLE(), address(factory)),
+            "Factory should not have DEFAULT_ADMIN_ROLE"
+        );
+    }
+    
+    function test_136____deployDeterministicWithName____CanMintThroughRegistrar() public {
+        bytes32 registrySalt = keccak256("mint-test");
+        bytes32 registrarSalt = keccak256("mint-test-registrar");
+        
+        (address registry, address registrar) = factory.deployDeterministic(
+            ADMIN1,
+            0.01 ether,
+            1000,
+            registrySalt,
+            registrarSalt,
+            "Test Registry"
+        );
+        
+        AgentRegistrar reg = AgentRegistrar(payable(registrar));
+        AgentRegistry agentReg = AgentRegistry(registry);
+        
+        // Open minting
+        vm.prank(ADMIN1);
+        reg.openMinting();
+        
+        // Mint an agent
+        vm.deal(OWNER1, 1 ether);
+        vm.prank(OWNER1);
+        uint256 agentId = reg.mint{value: 0.01 ether}();
+        
+        assertEq(agentId, 0, "First agent ID should be 0");
+        assertEq(agentReg.ownerOf(0), OWNER1, "Owner should be OWNER1");
+    }
+    
+    /* ============================================================== */
     /*                        FUZZ TESTS                              */
     /* ============================================================== */
     
@@ -631,5 +1018,75 @@ contract AgentRegistryFactoryTest is Test {
         assertEq(reg.mintPrice(), mintPrice, "Mint price should match");
         assertEq(reg.maxSupply(), maxSupply, "Max supply should match");
         assertEq(address(reg.registry()), registry, "Registry should match");
+    }
+    
+    function testFuzz_deployRegistryWithName(address admin, string memory name) public {
+        vm.assume(admin != address(0));
+        
+        address registry = factory.deployRegistry(admin, name);
+        AgentRegistry reg = AgentRegistry(registry);
+        
+        assertTrue(reg.hasRole(reg.DEFAULT_ADMIN_ROLE(), admin), "Admin should have role");
+        bytes memory nameBytes = reg.getContractMetadata("name");
+        assertEq(string(nameBytes), name, "Name should be set correctly");
+    }
+    
+    function testFuzz_deployRegistryDeterministicWithName(address admin, bytes32 salt, string memory name) public {
+        vm.assume(admin != address(0));
+        
+        address predicted = factory.predictRegistryAddress(salt);
+        address deployed = factory.deployRegistryDeterministic(admin, salt, name);
+        
+        assertEq(deployed, predicted, "Deployed should match predicted");
+        AgentRegistry reg = AgentRegistry(deployed);
+        bytes memory nameBytes = reg.getContractMetadata("name");
+        assertEq(string(nameBytes), name, "Name should be set correctly");
+    }
+    
+    function testFuzz_combinedDeployWithName(uint256 mintPrice, uint256 maxSupply, string memory name) public {
+        vm.assume(mintPrice <= 100 ether);
+        vm.assume(maxSupply <= 1_000_000);
+        
+        (address registry, address registrar) = factory.deploy(ADMIN1, mintPrice, maxSupply, name);
+        
+        AgentRegistrar reg = AgentRegistrar(payable(registrar));
+        assertEq(reg.mintPrice(), mintPrice, "Mint price should match");
+        assertEq(reg.maxSupply(), maxSupply, "Max supply should match");
+        
+        AgentRegistry agentReg = AgentRegistry(registry);
+        bytes memory nameBytes = agentReg.getContractMetadata("name");
+        assertEq(string(nameBytes), name, "Name should be set correctly");
+    }
+    
+    function testFuzz_deployDeterministicWithName(
+        address admin,
+        uint256 mintPrice,
+        uint256 maxSupply,
+        bytes32 registrySalt,
+        bytes32 registrarSalt,
+        string memory name
+    ) public {
+        vm.assume(admin != address(0));
+        vm.assume(mintPrice <= 100 ether);
+        vm.assume(maxSupply <= 1_000_000);
+        
+        address predicted = factory.predictRegistryAddress(registrySalt);
+        (address registry, address registrar) = factory.deployDeterministic(
+            admin,
+            mintPrice,
+            maxSupply,
+            registrySalt,
+            registrarSalt,
+            name
+        );
+        
+        assertEq(registry, predicted, "Registry address should match prediction");
+        AgentRegistrar reg = AgentRegistrar(payable(registrar));
+        assertEq(reg.mintPrice(), mintPrice, "Mint price should match");
+        assertEq(reg.maxSupply(), maxSupply, "Max supply should match");
+        
+        AgentRegistry agentReg = AgentRegistry(registry);
+        bytes memory nameBytes = agentReg.getContractMetadata("name");
+        assertEq(string(nameBytes), name, "Name should be set correctly");
     }
 }
