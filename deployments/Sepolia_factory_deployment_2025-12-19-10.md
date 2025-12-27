@@ -25,6 +25,7 @@
 ## Deployment Transaction
 
 - **Transaction Hash:** [`0x364beb290dbec7cc6e3ba9e71cf776a0783ae445816a9654e9bd9b3755af99fe`](https://sepolia.etherscan.io/tx/0x364beb290dbec7cc6e3ba9e71cf776a0783ae445816a9654e9bd9b3755af99fe)
+- **Deployment Block:** `9878571` (important for indexers)
 - **Deployer Address:** `0xF8e03bd4436371E0e2F7C02E529b2172fe72b4EF`
 - **Gas Used:** ~11,062,853 gas
 - **Total Cost:** ~0.0000115 ETH
@@ -66,7 +67,7 @@ uint256 maxSupply = 1000; // 0 = unlimited
 (address registry, address registrar) = factory.deploy(adminAddress, mintPrice, maxSupply);
 
 // Registrar is automatically granted REGISTRAR_ROLE on the registry
-// Open minting when ready
+// IMPORTANT: Minting starts CLOSED by default - you must open it
 AgentRegistrar(registrar).openMinting();
 ```
 
@@ -170,6 +171,7 @@ The registrar contract includes:
 - Clones have independent storage and state
 - All clones share the same implementation code
 - When deploying registry + registrar together, the registrar automatically receives `REGISTRAR_ROLE` on the registry
+- **Registrars start with minting CLOSED by default** - call `openMinting()` to enable public minting
 - The registrar trusts the registry (no reentrancy guards on mint functions)
 - Metadata can be set during minting using either basic parameters or flexible key-value arrays
 

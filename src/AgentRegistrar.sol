@@ -1,17 +1,24 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.25;
 
-import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
 import {Initializable} from "@openzeppelin/contracts/proxy/utils/Initializable.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {AgentRegistry} from "./AgentRegistry.sol";
 import {IAgentRegistry} from "./interfaces/IAgentRegistry.sol";
 
 /// @title AgentRegistrar
-/// @notice A registrar contract that allows public minting of agents for a fee
+/// @notice A registrar contract that allows public or private minting of agents for a fee
 /// @dev Supports both standalone deployment and minimal clone (EIP-1167) deployment.
-///      Features: mint price, max supply cap, open/close minting, permanent lock bits.
-contract AgentRegistrar is Initializable, Ownable, ReentrancyGuard {
+///      Features: mint price, max supply cap, open/close minting, public/private minting, permanent lock bits.
+contract AgentRegistrar is Initializable, AccessControl, ReentrancyGuard {
+    /* --- Constants --- */
+    
+    /// @notice Role for administrative functions (open/close minting, set prices, etc.)
+    bytes32 public constant ADMIN_ROLE = keccak256("ADMIN_ROLE");
+    
+    /// @notice Role for minting agents when minting is in private mode
+    bytes32 public constant MINTER_ROLE = keccak256("MINTER_ROLE");
     /* --- Lock Bits --- */
     
     /// @notice Bit flags for locking specific admin functions
@@ -41,11 +48,16 @@ contract AgentRegistrar is Initializable, Ownable, ReentrancyGuard {
 
     /// @notice Whether minting is currently open
     bool public open;
+    
+    /// @notice Whether minting is public (true) or private (false)
+    /// @dev When false, only addresses with MINTER_ROLE can mint
+    bool public publicMinting;
 
     /* --- Events --- */
 
     /// @notice Emitted when minting is opened
-    event MintingOpened();
+    /// @param isPublic Whether minting is public (true) or private (false)
+    event MintingOpened(bool isPublic);
 
     /// @notice Emitted when minting is closed
     event MintingClosed();
@@ -69,6 +81,9 @@ contract AgentRegistrar is Initializable, Ownable, ReentrancyGuard {
 
     /// @notice Thrown when minting is not open
     error MintingNotOpen();
+    
+    /// @notice Thrown when caller lacks minter role in private minting mode
+    error NotMinter();
 
     /// @notice Thrown when max supply would be exceeded
     error MaxSupplyExceeded(uint256 requested, uint256 available);
@@ -94,17 +109,23 @@ contract AgentRegistrar is Initializable, Ownable, ReentrancyGuard {
     /// @param _registry The AgentRegistry to mint to
     /// @param _mintPrice Price per mint in wei
     /// @param _maxSupply Maximum supply (0 = unlimited)
-    /// @param _owner Owner of the registrar
+    /// @param _admin Admin of the registrar (receives ADMIN_ROLE and DEFAULT_ADMIN_ROLE)
     constructor(
         AgentRegistry _registry,
         uint256 _mintPrice,
         uint256 _maxSupply,
-        address _owner
-    ) Ownable(_owner) {
+        address _admin
+    ) {
         registry = _registry;
         mintPrice = _mintPrice;
         maxSupply = _maxSupply;
         open = false;
+        publicMinting = false; // Default to private minting
+        
+        // Grant roles to admin - DEFAULT_ADMIN_ROLE for role management, ADMIN_ROLE for admin functions, MINTER_ROLE for private minting
+        _grantRole(DEFAULT_ADMIN_ROLE, _admin);
+        _grantRole(ADMIN_ROLE, _admin);
+        _grantRole(MINTER_ROLE, _admin);
         _disableInitializers();
     }
 
@@ -112,18 +133,23 @@ contract AgentRegistrar is Initializable, Ownable, ReentrancyGuard {
     /// @param _registry The AgentRegistry to mint to
     /// @param _mintPrice Price per mint in wei
     /// @param _maxSupply Maximum supply (0 = unlimited)
-    /// @param _owner Owner of the registrar
+    /// @param _admin Admin of the registrar (receives ADMIN_ROLE and DEFAULT_ADMIN_ROLE)
     function initialize(
         AgentRegistry _registry,
         uint256 _mintPrice,
         uint256 _maxSupply,
-        address _owner
+        address _admin
     ) external initializer {
         registry = _registry;
         mintPrice = _mintPrice;
         maxSupply = _maxSupply;
         open = false;
-        _transferOwnership(_owner);
+        publicMinting = false; // Default to private minting
+        
+        // Grant roles to admin - DEFAULT_ADMIN_ROLE for role management, ADMIN_ROLE for admin functions, MINTER_ROLE for private minting
+        _grantRole(DEFAULT_ADMIN_ROLE, _admin);
+        _grantRole(ADMIN_ROLE, _admin);
+        _grantRole(MINTER_ROLE, _admin);
     }
 
     /* --- Minting Functions --- */
@@ -196,14 +222,16 @@ contract AgentRegistrar is Initializable, Ownable, ReentrancyGuard {
     /* --- Admin Functions --- */
 
     /// @notice Open minting
-    function openMinting() external onlyOwner {
+    /// @param _publicMinting True for public minting, false for private (MINTER_ROLE only)
+    function openMinting(bool _publicMinting) external onlyRole(ADMIN_ROLE) {
         if (lockBits & LOCK_OPEN_CLOSE != 0) revert FunctionLocked();
         open = true;
-        emit MintingOpened();
+        publicMinting = _publicMinting;
+        emit MintingOpened(_publicMinting);
     }
 
     /// @notice Close minting
-    function closeMinting() external onlyOwner {
+    function closeMinting() external onlyRole(ADMIN_ROLE) {
         if (lockBits & LOCK_OPEN_CLOSE != 0) revert FunctionLocked();
         open = false;
         emit MintingClosed();
@@ -211,7 +239,7 @@ contract AgentRegistrar is Initializable, Ownable, ReentrancyGuard {
 
     /// @notice Set the mint price
     /// @param newPrice New price in wei
-    function setMintPrice(uint256 newPrice) external onlyOwner {
+    function setMintPrice(uint256 newPrice) external onlyRole(ADMIN_ROLE) {
         if (lockBits & LOCK_MINT_PRICE != 0) revert FunctionLocked();
         uint256 oldPrice = mintPrice;
         mintPrice = newPrice;
@@ -220,7 +248,7 @@ contract AgentRegistrar is Initializable, Ownable, ReentrancyGuard {
 
     /// @notice Set the max supply
     /// @param newMaxSupply New maximum supply (0 = unlimited)
-    function setMaxSupply(uint256 newMaxSupply) external onlyOwner {
+    function setMaxSupply(uint256 newMaxSupply) external onlyRole(ADMIN_ROLE) {
         if (lockBits & LOCK_MAX_SUPPLY != 0) revert FunctionLocked();
         if (newMaxSupply != 0 && newMaxSupply < totalMinted) {
             revert MaxSupplyTooLow(newMaxSupply, totalMinted);
@@ -232,7 +260,7 @@ contract AgentRegistrar is Initializable, Ownable, ReentrancyGuard {
 
     /// @notice Permanently lock a function
     /// @param lockBit The lock bit to set (LOCK_OPEN_CLOSE, LOCK_MINT_PRICE, or LOCK_MAX_SUPPLY)
-    function setLockBit(uint256 lockBit) external onlyOwner {
+    function setLockBit(uint256 lockBit) external onlyRole(ADMIN_ROLE) {
         if (lockBit != LOCK_OPEN_CLOSE && lockBit != LOCK_MINT_PRICE && lockBit != LOCK_MAX_SUPPLY) {
             revert InvalidLockBit();
         }
@@ -240,21 +268,21 @@ contract AgentRegistrar is Initializable, Ownable, ReentrancyGuard {
         emit LockBitSet(lockBit);
     }
 
-    /// @notice Withdraw all ETH to the owner
-    function withdraw() external onlyOwner nonReentrant {
+    /// @notice Withdraw all ETH to the caller (must have ADMIN_ROLE)
+    function withdraw() external onlyRole(ADMIN_ROLE) nonReentrant {
         uint256 balance = address(this).balance;
-        (bool success, ) = payable(owner()).call{value: balance}("");
+        (bool success, ) = payable(msg.sender).call{value: balance}("");
         if (!success) revert TransferFailed();
-        emit Withdrawn(owner(), balance);
+        emit Withdrawn(msg.sender, balance);
     }
 
-    /// @notice Withdraw a specific amount of ETH to the owner
+    /// @notice Withdraw a specific amount of ETH to the caller (must have ADMIN_ROLE)
     /// @param amount Amount to withdraw
-    function withdraw(uint256 amount) external onlyOwner nonReentrant {
+    function withdraw(uint256 amount) external onlyRole(ADMIN_ROLE) nonReentrant {
         if (amount > address(this).balance) revert TransferFailed();
-        (bool success, ) = payable(owner()).call{value: amount}("");
+        (bool success, ) = payable(msg.sender).call{value: amount}("");
         if (!success) revert TransferFailed();
-        emit Withdrawn(owner(), amount);
+        emit Withdrawn(msg.sender, amount);
     }
 
     /* --- View Functions --- */
@@ -278,6 +306,12 @@ contract AgentRegistrar is Initializable, Ownable, ReentrancyGuard {
     /// @dev Check mint prerequisites and handle payment
     function _checkMintAndPay(uint256 count) internal {
         if (!open) revert MintingNotOpen();
+        
+        // Check if minting is private and caller doesn't have MINTER_ROLE
+        if (!publicMinting && !hasRole(MINTER_ROLE, msg.sender)) {
+            revert NotMinter();
+        }
+        
         if (maxSupply != 0 && totalMinted + count > maxSupply) {
             revert MaxSupplyExceeded(count, maxSupply == 0 ? 0 : maxSupply - totalMinted);
         }

@@ -69,26 +69,43 @@ The core contract that stores agents and their metadata.
 
 ### 2. AgentRegistrar
 
-An optional companion contract for public minting with economic controls.
+An optional companion contract for public or private minting with economic controls.
 
 **Features:**
 | Feature | Description |
 |---------|-------------|
 | **Mint Price** | Configurable ETH price per mint (0 = free) |
 | **Max Supply** | Optional cap on total agents (0 = unlimited) |
-| **Open/Close** | Owner can open/close public minting (starts **closed** by default) |
+| **Open/Close** | Admin can open/close minting (starts **closed** by default) |
+| **Public/Private Minting** | When open, can be public (anyone) or private (MINTER_ROLE only) |
+| **Access Control** | Role-based permissions (ADMIN_ROLE, MINTER_ROLE) |
 | **Lock Bits** | Permanently lock specific settings |
 | **Metadata Minting** | Set agent metadata during mint |
 | **Batch Minting** | Mint multiple agents in one transaction |
-| **Revenue Collection** | Owner can withdraw collected ETH |
+| **Revenue Collection** | Admin can withdraw collected ETH |
 | **Overpayment Refunds** | Automatically refunds excess ETH |
+
+**Roles:**
+| Role | Description |
+|------|-------------|
+| `DEFAULT_ADMIN_ROLE` | Can grant/revoke all roles (role management) |
+| `ADMIN_ROLE` | Can open/close minting, set prices, withdraw funds, set lock bits |
+| `MINTER_ROLE` | Can mint agents when minting is open in private mode |
+
+**Minting Modes:**
+- **Public Minting**: When `openMinting(true)` is called, anyone can mint (subject to payment and supply limits)
+- **Private Minting**: When `openMinting(false)` is called, only addresses with `MINTER_ROLE` can mint
+- **Default**: Minting starts closed and defaults to private mode
+- **Deployer**: Automatically receives all roles (`DEFAULT_ADMIN_ROLE`, `ADMIN_ROLE`, `MINTER_ROLE`)
 
 **Lock Bits (Irreversible):**
 | Lock | Effect |
 |------|--------|
-| `LOCK_OPEN_CLOSE` | Permanently freezes open/close state |
+| `LOCK_OPEN_CLOSE` | Permanently freezes open/close state **and** public/private mode (locks current state) |
 | `LOCK_MINT_PRICE` | Permanently freezes mint price |
 | `LOCK_MAX_SUPPLY` | Permanently freezes max supply |
+
+**Note:** When `LOCK_OPEN_CLOSE` is set, it freezes both the open/close state AND the public/private mode. If locked while public, it stays public forever. If locked while private, it stays private forever.
 
 ### 3. AgentRegistryFactory
 
@@ -96,21 +113,32 @@ A gas-efficient factory for deploying registries and registrars using EIP-1167 m
 
 **Key Features:**
 - Deploy registry + registrar together or separately
+- Set registry name via ERC-8049 contract metadata during deployment
 - Deterministic deployment with predictable addresses
 - Automatic role setup when deploying pairs
 - Tracks all deployed contracts with enumeration functions
 
-See [`deployments/Sepolia_factory_deployment_2025-12-19-10.md`](deployments/Sepolia_factory_deployment_2025-12-19-10.md) for full API documentation.
+**Deployment Functions:**
+- `deployRegistry(admin)` / `deployRegistry(admin, name)` - Deploy registry only
+- `deploy(admin, mintPrice, maxSupply)` / `deploy(admin, mintPrice, maxSupply, name)` - Deploy registry + registrar together
+- `deployRegistryDeterministic(admin, salt)` / `deployRegistryDeterministic(admin, salt, name)` - Deterministic registry deployment
+- `deployDeterministic(admin, mintPrice, maxSupply, registrySalt, registrarSalt, name)` - Deterministic combined deployment
+
+See [`deployments/Sepolia_factory_deployment_2025-12-27-01.md`](deployments/Sepolia_factory_deployment_2025-12-27-01.md) for full API documentation.
 
 ## Deployed Contracts (Sepolia)
 
-| Contract | Address |
-|----------|---------|
-| **Factory** | [`0x97B5679fA5B7fB4B38525359791BB94Eac0a3723`](https://sepolia.etherscan.io/address/0x97B5679fA5B7fB4B38525359791BB94Eac0a3723) |
-| **Registry Implementation** | [`0xE625179F5CD970fD3FB00Df72398815106DB5F31`](https://sepolia.etherscan.io/address/0xE625179F5CD970fD3FB00Df72398815106DB5F31) |
-| **Registrar Implementation** | [`0x6aB5c9e29C261c8c9019CF85B5D8057b9f0A9cEd`](https://sepolia.etherscan.io/address/0x6aB5c9e29C261c8c9019CF85B5D8057b9f0A9cEd) |
+**Deployment Date:** December 27, 2025  
+**Deployment Block:** `9926798` (important for indexers)  
+**Transaction Hash:** [`0x2196ecfb5dda8a9c8c20bcc62882cea48070b905bacc32cc1b9d4f5d8c689620`](https://sepolia.etherscan.io/tx/0x2196ecfb5dda8a9c8c20bcc62882cea48070b905bacc32cc1b9d4f5d8c689620)
 
-📄 **Full deployment details and code examples:** [`deployments/Sepolia_factory_deployment_2025-12-19-10.md`](deployments/Sepolia_factory_deployment_2025-12-19-10.md)
+| Contract | Address | Status |
+|----------|---------|--------|
+| **Factory** | [`0x86a5139cBA9AB0f588aeFA3A7Ea3351E62C18563`](https://sepolia.etherscan.io/address/0x86a5139cBA9AB0f588aeFA3A7Ea3351E62C18563) | ✅ Verified |
+| **Registry Implementation** | [`0xa8cb0672E978Ff311412477c4D6732d80e074b20`](https://sepolia.etherscan.io/address/0xa8cb0672E978Ff311412477c4D6732d80e074b20) | ✅ Verified |
+| **Registrar Implementation** | [`0xb5E3Dcc8cc881c95Cd66D03fd0A4B3C07eA2fDCc`](https://sepolia.etherscan.io/address/0xb5E3Dcc8cc881c95Cd66D03fd0A4B3C07eA2fDCc) | ✅ Verified |
+
+📄 **Full deployment details and code examples:** [`deployments/Sepolia_factory_deployment_2025-12-27-01.md`](deployments/Sepolia_factory_deployment_2025-12-27-01.md)
 
 ## Gas Savings
 
@@ -175,7 +203,7 @@ forge test
 ### Using Existing Factory (Recommended)
 
 ```bash
-FACTORY_ADDRESS=0x97B5679fA5B7fB4B38525359791BB94Eac0a3723 \
+FACTORY_ADDRESS=0x86a5139cBA9AB0f588aeFA3A7Ea3351E62C18563 \
 MINT_PRICE=10000000000000000 \
 MAX_SUPPLY=1000 \
 source .env && forge script script/DeployAgentRegistry.s.sol:DeployFromExistingFactory \
@@ -192,6 +220,44 @@ source .env && forge script script/DeployAgentRegistry.s.sol:DeployRegistryAndRe
 
 See [`script/DeployAgentRegistry.s.sol`](script/DeployAgentRegistry.s.sol) for all deployment options.
 
+### Public vs Private Minting
+
+**Public Minting (Anyone can mint):**
+```solidity
+// Open minting in public mode
+registrar.openMinting(true);
+
+// Now anyone can mint
+registrar.mint{value: mintPrice}();
+```
+
+**Private Minting (MINTER_ROLE only):**
+```solidity
+// Open minting in private mode
+registrar.openMinting(false);
+
+// Grant MINTER_ROLE to approved addresses
+registrar.grantRole(registrar.MINTER_ROLE(), approvedAddress1);
+registrar.grantRole(registrar.MINTER_ROLE(), approvedAddress2);
+
+// Only addresses with MINTER_ROLE can mint
+registrar.mint{value: mintPrice}(); // ✅ Works if caller has MINTER_ROLE
+```
+
+**Switching Between Modes:**
+```solidity
+// Start private, grant roles to whitelist
+registrar.openMinting(false);
+registrar.grantRole(registrar.MINTER_ROLE(), whitelistedAddress);
+
+// Later, switch to public
+registrar.closeMinting();
+registrar.openMinting(true); // Now anyone can mint
+
+// Lock to prevent future changes
+registrar.setLockBit(registrar.LOCK_OPEN_CLOSE()); // Freezes as public forever
+```
+
 ## Environment Variables
 
 Create a `.env` file:
@@ -206,8 +272,13 @@ ETHERSCAN_API_KEY=...
 ## Security Considerations
 
 - **Lock Bits are Irreversible**: Once set, lock bits cannot be unset
-- **Role Management**: Be careful when granting `DEFAULT_ADMIN_ROLE`
-- **Registrar Ownership**: The registrar owner controls minting and withdrawals
+  - `LOCK_OPEN_CLOSE` freezes both the open/close state AND public/private mode
+  - If locked while public, it remains public forever
+  - If locked while private, it remains private forever
+- **Role Management**: Be careful when granting `DEFAULT_ADMIN_ROLE` (can grant/revoke all roles)
+- **Admin vs Default Admin**: `ADMIN_ROLE` handles day-to-day operations, `DEFAULT_ADMIN_ROLE` manages roles
+- **Private Minting**: Only addresses with `MINTER_ROLE` can mint when in private mode
+- **Public Minting**: Anyone can mint when in public mode (subject to payment and supply limits)
 - **Factory is Permissionless**: Anyone can deploy registries from the factory
 
 ## License

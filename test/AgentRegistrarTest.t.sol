@@ -40,7 +40,7 @@ contract AgentRegistrarTest is Test {
     
     /* --- Events --- */
     
-    event MintingOpened();
+    event MintingOpened(bool isPublic);
     event MintingClosed();
     event MintPriceUpdated(uint256 oldPrice, uint256 newPrice);
     event MaxSupplyUpdated(uint256 oldSupply, uint256 newSupply);
@@ -73,8 +73,10 @@ contract AgentRegistrarTest is Test {
         assertEq(address(registrar.registry()), address(registry), "Registry should be set");
         assertEq(registrar.mintPrice(), MINT_PRICE, "Mint price should be set");
         assertEq(registrar.maxSupply(), MAX_SUPPLY, "Max supply should be set");
-        assertEq(registrar.owner(), OWNER, "Owner should be set");
+        assertTrue(registrar.hasRole(registrar.ADMIN_ROLE(), OWNER), "OWNER should have ADMIN_ROLE");
+        assertTrue(registrar.hasRole(registrar.MINTER_ROLE(), OWNER), "OWNER should have MINTER_ROLE");
         assertFalse(registrar.open(), "Minting should be closed initially");
+        assertFalse(registrar.publicMinting(), "Should default to private minting");
         assertEq(registrar.totalMinted(), 0, "Total minted should be 0");
     }
     
@@ -89,18 +91,29 @@ contract AgentRegistrarTest is Test {
     /*                      OPEN/CLOSE MINTING                        */
     /* ============================================================== */
     
-    function test_010____openClose____OwnerCanOpen() public {
+    function test_010____openClose____AdminCanOpenPublic() public {
         vm.prank(OWNER);
         vm.expectEmit(true, true, true, true);
-        emit MintingOpened();
-        registrar.openMinting();
+        emit MintingOpened(true);
+        registrar.openMinting(true);
         
         assertTrue(registrar.open(), "Minting should be open");
+        assertTrue(registrar.publicMinting(), "Minting should be public");
     }
     
-    function test_011____openClose____OwnerCanClose() public {
+    function test_011____openClose____AdminCanOpenPrivate() public {
+        vm.prank(OWNER);
+        vm.expectEmit(true, true, true, true);
+        emit MintingOpened(false);
+        registrar.openMinting(false);
+        
+        assertTrue(registrar.open(), "Minting should be open");
+        assertFalse(registrar.publicMinting(), "Minting should be private");
+    }
+    
+    function test_012____openClose____AdminCanClose() public {
         vm.startPrank(OWNER);
-        registrar.openMinting();
+        registrar.openMinting(true);
         
         vm.expectEmit(true, true, true, true);
         emit MintingClosed();
@@ -110,15 +123,15 @@ contract AgentRegistrarTest is Test {
         assertFalse(registrar.open(), "Minting should be closed");
     }
     
-    function test_012____openClose____NonOwnerCannotOpen() public {
+    function test_013____openClose____NonAdminCannotOpen() public {
         vm.prank(RANDOM);
         vm.expectRevert();
-        registrar.openMinting();
+        registrar.openMinting(true);
     }
     
-    function test_013____openClose____NonOwnerCannotClose() public {
+    function test_014____openClose____NonAdminCannotClose() public {
         vm.prank(OWNER);
-        registrar.openMinting();
+        registrar.openMinting(true);
         
         vm.prank(RANDOM);
         vm.expectRevert();
@@ -129,9 +142,9 @@ contract AgentRegistrarTest is Test {
     /*                        SINGLE MINTING                          */
     /* ============================================================== */
     
-    function test_020____mint____CanMintWhenOpen() public {
+    function test_020____mint____CanMintWhenOpenPublic() public {
         vm.prank(OWNER);
-        registrar.openMinting();
+        registrar.openMinting(true);
         
         vm.prank(USER1);
         uint256 agentId = registrar.mint{value: MINT_PRICE}();
@@ -141,15 +154,37 @@ contract AgentRegistrarTest is Test {
         assertEq(registrar.totalMinted(), 1, "Total minted should be 1");
     }
     
-    function test_021____mint____CannotMintWhenClosed() public {
+    function test_021____mint____CanMintWhenOpenPrivateWithMinterRole() public {
+        vm.prank(OWNER);
+        registrar.openMinting(false);
+        
+        // OWNER has MINTER_ROLE, so can mint
+        vm.prank(OWNER);
+        uint256 agentId = registrar.mint{value: MINT_PRICE}();
+        
+        assertEq(agentId, 0, "First agent ID should be 0");
+        assertEq(registry.ownerOf(0), OWNER, "OWNER should own the agent");
+    }
+    
+    function test_022____mint____CannotMintWhenOpenPrivateWithoutMinterRole() public {
+        vm.prank(OWNER);
+        registrar.openMinting(false);
+        
+        // USER1 doesn't have MINTER_ROLE
+        vm.prank(USER1);
+        vm.expectRevert(AgentRegistrar.NotMinter.selector);
+        registrar.mint{value: MINT_PRICE}();
+    }
+    
+    function test_023____mint____CannotMintWhenClosed() public {
         vm.prank(USER1);
         vm.expectRevert(AgentRegistrar.MintingNotOpen.selector);
         registrar.mint{value: MINT_PRICE}();
     }
     
-    function test_022____mint____CanMintToOtherAddress() public {
+    function test_024____mint____CanMintToOtherAddress() public {
         vm.prank(OWNER);
-        registrar.openMinting();
+        registrar.openMinting(true);
         
         vm.prank(USER1);
         uint256 agentId = registrar.mint{value: MINT_PRICE}(USER2);
@@ -157,9 +192,9 @@ contract AgentRegistrarTest is Test {
         assertEq(registry.ownerOf(agentId), USER2, "USER2 should own the agent");
     }
     
-    function test_023____mint____EmitsAgentMintedEvent() public {
+    function test_025____mint____EmitsAgentMintedEvent() public {
         vm.prank(OWNER);
-        registrar.openMinting();
+        registrar.openMinting(true);
         
         vm.expectEmit(true, true, true, true);
         emit AgentMinted(0, USER1, 1);
@@ -168,9 +203,9 @@ contract AgentRegistrarTest is Test {
         registrar.mint{value: MINT_PRICE}();
     }
     
-    function test_024____mint____RefundsOverpayment() public {
+    function test_026____mint____RefundsOverpayment() public {
         vm.prank(OWNER);
-        registrar.openMinting();
+        registrar.openMinting(true);
         
         uint256 balanceBefore = USER1.balance;
         
@@ -181,9 +216,9 @@ contract AgentRegistrarTest is Test {
         assertEq(balanceBefore - balanceAfter, MINT_PRICE, "Should only charge mint price");
     }
     
-    function test_025____mint____RevertsOnInsufficientPayment() public {
+    function test_027____mint____RevertsOnInsufficientPayment() public {
         vm.prank(OWNER);
-        registrar.openMinting();
+        registrar.openMinting(true);
         
         vm.prank(USER1);
         vm.expectRevert(abi.encodeWithSelector(
@@ -200,7 +235,7 @@ contract AgentRegistrarTest is Test {
     
     function test_030____mintBatch____CanMintMultiple() public {
         vm.prank(OWNER);
-        registrar.openMinting();
+        registrar.openMinting(true);
         
         vm.prank(USER1);
         uint256[] memory agentIds = registrar.mintBatch{value: MINT_PRICE * 5}(5);
@@ -215,7 +250,7 @@ contract AgentRegistrarTest is Test {
     
     function test_031____mintBatch____CanMintToOtherAddress() public {
         vm.prank(OWNER);
-        registrar.openMinting();
+        registrar.openMinting(true);
         
         vm.prank(USER1);
         uint256[] memory agentIds = registrar.mintBatch{value: MINT_PRICE * 3}(USER2, 3);
@@ -228,7 +263,7 @@ contract AgentRegistrarTest is Test {
     
     function test_032____mintBatch____RefundsOverpayment() public {
         vm.prank(OWNER);
-        registrar.openMinting();
+        registrar.openMinting(true);
         
         uint256 balanceBefore = USER1.balance;
         
@@ -241,7 +276,7 @@ contract AgentRegistrarTest is Test {
     
     function test_033____mintBatch____RevertsOnInsufficientPayment() public {
         vm.prank(OWNER);
-        registrar.openMinting();
+        registrar.openMinting(true);
         
         vm.prank(USER1);
         vm.expectRevert(abi.encodeWithSelector(
@@ -250,6 +285,25 @@ contract AgentRegistrarTest is Test {
             0.03 ether
         ));
         registrar.mintBatch{value: 0.02 ether}(3);
+    }
+    
+    function test_034____mintBatch____CanMintBatchWhenPrivateWithMinterRole() public {
+        vm.prank(OWNER);
+        registrar.openMinting(false);
+        
+        vm.prank(OWNER);
+        uint256[] memory agentIds = registrar.mintBatch{value: MINT_PRICE * 3}(3);
+        
+        assertEq(agentIds.length, 3, "Should mint 3 agents");
+    }
+    
+    function test_035____mintBatch____CannotMintBatchWhenPrivateWithoutMinterRole() public {
+        vm.prank(OWNER);
+        registrar.openMinting(false);
+        
+        vm.prank(USER1);
+        vm.expectRevert(AgentRegistrar.NotMinter.selector);
+        registrar.mintBatch{value: MINT_PRICE * 3}(3);
     }
     
     /* ============================================================== */
@@ -262,7 +316,7 @@ contract AgentRegistrarTest is Test {
         registry.grantRole(registry.REGISTRAR_ROLE(), address(smallRegistrar));
         
         vm.prank(OWNER);
-        smallRegistrar.openMinting();
+        smallRegistrar.openMinting(true);
         
         // Mint up to max
         vm.startPrank(USER1);
@@ -286,7 +340,7 @@ contract AgentRegistrarTest is Test {
         registry.grantRole(registry.REGISTRAR_ROLE(), address(smallRegistrar));
         
         vm.prank(OWNER);
-        smallRegistrar.openMinting();
+        smallRegistrar.openMinting(true);
         
         vm.prank(USER1);
         smallRegistrar.mintBatch{value: MINT_PRICE * 3}(3);
@@ -306,7 +360,7 @@ contract AgentRegistrarTest is Test {
         registry.grantRole(registry.REGISTRAR_ROLE(), address(unlimitedRegistrar));
         
         vm.prank(OWNER);
-        unlimitedRegistrar.openMinting();
+        unlimitedRegistrar.openMinting(true);
         
         // Should be able to mint many
         vm.prank(USER1);
@@ -318,7 +372,7 @@ contract AgentRegistrarTest is Test {
     
     function test_043____maxSupply____RemainingSupplyCorrect() public {
         vm.prank(OWNER);
-        registrar.openMinting();
+        registrar.openMinting(true);
         
         assertEq(registrar.remainingSupply(), MAX_SUPPLY, "Should be full supply initially");
         
@@ -356,7 +410,7 @@ contract AgentRegistrarTest is Test {
     
     function test_052____admin____CannotSetMaxSupplyBelowMinted() public {
         vm.prank(OWNER);
-        registrar.openMinting();
+        registrar.openMinting(true);
         
         vm.prank(USER1);
         registrar.mintBatch{value: MINT_PRICE * 10}(10);
@@ -370,13 +424,13 @@ contract AgentRegistrarTest is Test {
         registrar.setMaxSupply(5);
     }
     
-    function test_053____admin____NonOwnerCannotSetMintPrice() public {
+    function test_053____admin____NonAdminCannotSetMintPrice() public {
         vm.prank(RANDOM);
         vm.expectRevert();
         registrar.setMintPrice(0.05 ether);
     }
     
-    function test_054____admin____NonOwnerCannotSetMaxSupply() public {
+    function test_054____admin____NonAdminCannotSetMaxSupply() public {
         vm.prank(RANDOM);
         vm.expectRevert();
         registrar.setMaxSupply(500);
@@ -396,7 +450,7 @@ contract AgentRegistrarTest is Test {
         assertTrue(registrar.isLocked(registrar.LOCK_OPEN_CLOSE()), "Should be locked");
         
         vm.expectRevert(AgentRegistrar.FunctionLocked.selector);
-        registrar.openMinting();
+        registrar.openMinting(true);
         vm.stopPrank();
     }
     
@@ -439,9 +493,9 @@ contract AgentRegistrarTest is Test {
     /*                        WITHDRAWALS                             */
     /* ============================================================== */
     
-    function test_070____withdraw____OwnerCanWithdrawAll() public {
+    function test_070____withdraw____AdminCanWithdrawAll() public {
         vm.prank(OWNER);
-        registrar.openMinting();
+        registrar.openMinting(true);
         
         // Collect some fees
         vm.prank(USER1);
@@ -456,12 +510,12 @@ contract AgentRegistrarTest is Test {
         registrar.withdraw();
         
         assertEq(address(registrar).balance, 0, "Contract should be empty");
-        assertEq(OWNER.balance, ownerBalanceBefore + contractBalance, "Owner should receive funds");
+        assertEq(OWNER.balance, ownerBalanceBefore + contractBalance, "Admin should receive funds");
     }
     
-    function test_071____withdraw____OwnerCanWithdrawAmount() public {
+    function test_071____withdraw____AdminCanWithdrawAmount() public {
         vm.prank(OWNER);
-        registrar.openMinting();
+        registrar.openMinting(true);
         
         vm.prank(USER1);
         registrar.mintBatch{value: MINT_PRICE * 10}(10);
@@ -472,12 +526,12 @@ contract AgentRegistrarTest is Test {
         vm.prank(OWNER);
         registrar.withdraw(withdrawAmount);
         
-        assertEq(OWNER.balance, ownerBalanceBefore + withdrawAmount, "Owner should receive amount");
+        assertEq(OWNER.balance, ownerBalanceBefore + withdrawAmount, "Admin should receive amount");
     }
     
-    function test_072____withdraw____NonOwnerCannotWithdraw() public {
+    function test_072____withdraw____NonAdminCannotWithdraw() public {
         vm.prank(OWNER);
-        registrar.openMinting();
+        registrar.openMinting(true);
         
         vm.prank(USER1);
         registrar.mint{value: MINT_PRICE}();
@@ -499,7 +553,7 @@ contract AgentRegistrarTest is Test {
     
     function test_080____metadataMint____WithBasicMetadata() public {
         vm.prank(OWNER);
-        registrar.openMinting();
+        registrar.openMinting(true);
         
         vm.prank(USER1);
         uint256 agentId = registrar.mint{value: MINT_PRICE}(
@@ -516,7 +570,7 @@ contract AgentRegistrarTest is Test {
     
     function test_081____metadataMint____WithFlexibleMetadata() public {
         vm.prank(OWNER);
-        registrar.openMinting();
+        registrar.openMinting(true);
         
         IAgentRegistry.MetadataEntry[] memory metadata = new IAgentRegistry.MetadataEntry[](2);
         metadata[0] = IAgentRegistry.MetadataEntry("name", bytes("Test Agent"));
@@ -532,7 +586,7 @@ contract AgentRegistrarTest is Test {
     
     function test_082____metadataMint____BatchWithMetadata() public {
         vm.prank(OWNER);
-        registrar.openMinting();
+        registrar.openMinting(true);
         
         IAgentRegistry.MetadataEntry[][] memory allMetadata = new IAgentRegistry.MetadataEntry[][](2);
         
@@ -559,7 +613,7 @@ contract AgentRegistrarTest is Test {
         registry.grantRole(registry.REGISTRAR_ROLE(), address(freeRegistrar));
         
         vm.prank(OWNER);
-        freeRegistrar.openMinting();
+        freeRegistrar.openMinting(true);
         
         vm.prank(USER1);
         uint256 agentId = freeRegistrar.mint();
@@ -572,12 +626,178 @@ contract AgentRegistrarTest is Test {
         registry.grantRole(registry.REGISTRAR_ROLE(), address(freeRegistrar));
         
         vm.prank(OWNER);
-        freeRegistrar.openMinting();
+        freeRegistrar.openMinting(true);
         
         vm.prank(USER1);
         uint256[] memory agentIds = freeRegistrar.mintBatch(10);
         
         assertEq(agentIds.length, 10, "Should mint 10 agents");
+    }
+    
+    /* ============================================================== */
+    /*                  PUBLIC/PRIVATE MINTING                        */
+    /* ============================================================== */
+    
+    function test_100____publicPrivateMinting____PublicMintingAllowsAnyone() public {
+        vm.prank(OWNER);
+        registrar.openMinting(true);
+        
+        // Anyone can mint when public
+        vm.prank(USER1);
+        uint256 agentId1 = registrar.mint{value: MINT_PRICE}();
+        
+        vm.prank(USER2);
+        uint256 agentId2 = registrar.mint{value: MINT_PRICE}();
+        
+        assertEq(registry.ownerOf(agentId1), USER1, "USER1 should own agent");
+        assertEq(registry.ownerOf(agentId2), USER2, "USER2 should own agent");
+    }
+    
+    function test_101____publicPrivateMinting____PrivateMintingOnlyMinters() public {
+        vm.prank(OWNER);
+        registrar.openMinting(false);
+        
+        // OWNER has MINTER_ROLE, can mint
+        vm.prank(OWNER);
+        uint256 agentId1 = registrar.mint{value: MINT_PRICE}();
+        assertEq(registry.ownerOf(agentId1), OWNER, "OWNER should own agent");
+        
+        // USER1 doesn't have MINTER_ROLE, cannot mint
+        vm.prank(USER1);
+        vm.expectRevert(AgentRegistrar.NotMinter.selector);
+        registrar.mint{value: MINT_PRICE}();
+    }
+    
+    function test_102____publicPrivateMinting____CanGrantMinterRole() public {
+        vm.prank(OWNER);
+        registrar.openMinting(false);
+        
+        // Grant MINTER_ROLE to USER1
+        vm.prank(OWNER);
+        registrar.grantRole(registrar.MINTER_ROLE(), USER1);
+        
+        // Now USER1 can mint
+        vm.prank(USER1);
+        uint256 agentId = registrar.mint{value: MINT_PRICE}();
+        assertEq(registry.ownerOf(agentId), USER1, "USER1 should own agent");
+    }
+    
+    function test_103____publicPrivateMinting____CanRevokeMinterRole() public {
+        vm.prank(OWNER);
+        registrar.openMinting(false);
+        
+        // Grant then revoke MINTER_ROLE
+        vm.startPrank(OWNER);
+        registrar.grantRole(registrar.MINTER_ROLE(), USER1);
+        registrar.revokeRole(registrar.MINTER_ROLE(), USER1);
+        vm.stopPrank();
+        
+        // USER1 can no longer mint
+        vm.prank(USER1);
+        vm.expectRevert(AgentRegistrar.NotMinter.selector);
+        registrar.mint{value: MINT_PRICE}();
+    }
+    
+    function test_104____publicPrivateMinting____CanSwitchFromPublicToPrivate() public {
+        vm.prank(OWNER);
+        registrar.openMinting(true);
+        
+        // Anyone can mint
+        vm.prank(USER1);
+        registrar.mint{value: MINT_PRICE}();
+        
+        // Close and reopen as private
+        vm.startPrank(OWNER);
+        registrar.closeMinting();
+        registrar.openMinting(false);
+        vm.stopPrank();
+        
+        // Now only minters can mint
+        vm.prank(USER2);
+        vm.expectRevert(AgentRegistrar.NotMinter.selector);
+        registrar.mint{value: MINT_PRICE}();
+        
+        // OWNER can still mint
+        vm.prank(OWNER);
+        uint256 agentId = registrar.mint{value: MINT_PRICE}();
+        assertEq(registry.ownerOf(agentId), OWNER, "OWNER should own agent");
+    }
+    
+    function test_105____publicPrivateMinting____CanSwitchFromPrivateToPublic() public {
+        vm.prank(OWNER);
+        registrar.openMinting(false);
+        
+        // Only OWNER can mint
+        vm.prank(OWNER);
+        registrar.mint{value: MINT_PRICE}();
+        
+        // Close and reopen as public
+        vm.startPrank(OWNER);
+        registrar.closeMinting();
+        registrar.openMinting(true);
+        vm.stopPrank();
+        
+        // Now anyone can mint
+        vm.prank(USER1);
+        uint256 agentId = registrar.mint{value: MINT_PRICE}();
+        assertEq(registry.ownerOf(agentId), USER1, "USER1 should own agent");
+    }
+    
+    function test_106____publicPrivateMinting____BatchMintingRespectsPrivateMode() public {
+        vm.prank(OWNER);
+        registrar.openMinting(false);
+        
+        // Grant MINTER_ROLE to USER1
+        vm.prank(OWNER);
+        registrar.grantRole(registrar.MINTER_ROLE(), USER1);
+        
+        // USER1 can batch mint
+        vm.prank(USER1);
+        uint256[] memory agentIds = registrar.mintBatch{value: MINT_PRICE * 3}(3);
+        assertEq(agentIds.length, 3, "Should mint 3 agents");
+        
+        // USER2 cannot batch mint
+        vm.prank(USER2);
+        vm.expectRevert(AgentRegistrar.NotMinter.selector);
+        registrar.mintBatch{value: MINT_PRICE * 3}(3);
+    }
+    
+    function test_107____publicPrivateMinting____DefaultIsPrivate() public view {
+        assertFalse(registrar.publicMinting(), "Should default to private minting");
+    }
+    
+    function test_108____publicPrivateMinting____DeployerHasMinterRole() public view {
+        assertTrue(registrar.hasRole(registrar.MINTER_ROLE(), OWNER), "Deployer should have MINTER_ROLE");
+    }
+    
+    function test_109____publicPrivateMinting____DeployerHasAdminRole() public view {
+        assertTrue(registrar.hasRole(registrar.ADMIN_ROLE(), OWNER), "Deployer should have ADMIN_ROLE");
+    }
+    
+    function test_110____publicPrivateMinting____DeployerHasDefaultAdminRole() public view {
+        assertTrue(registrar.hasRole(registrar.DEFAULT_ADMIN_ROLE(), OWNER), "Deployer should have DEFAULT_ADMIN_ROLE");
+    }
+    
+    function test_111____publicPrivateMinting____NonAdminCannotGrantMinterRole() public {
+        vm.prank(RANDOM);
+        vm.expectRevert();
+        registrar.grantRole(registrar.MINTER_ROLE(), USER1);
+    }
+    
+    function test_112____publicPrivateMinting____AdminCanGrantMinterRole() public {
+        vm.prank(OWNER);
+        registrar.grantRole(registrar.MINTER_ROLE(), USER1);
+        
+        assertTrue(registrar.hasRole(registrar.MINTER_ROLE(), USER1), "USER1 should have MINTER_ROLE");
+    }
+    
+    function test_113____publicPrivateMinting____AdminCanRevokeMinterRole() public {
+        vm.startPrank(OWNER);
+        registrar.grantRole(registrar.MINTER_ROLE(), USER1);
+        registrar.revokeRole(registrar.MINTER_ROLE(), USER1);
+        vm.stopPrank();
+        
+        assertFalse(registrar.hasRole(registrar.MINTER_ROLE(), USER1), "USER1 should not have MINTER_ROLE");
     }
     
     /* ============================================================== */
@@ -588,7 +808,7 @@ contract AgentRegistrarTest is Test {
         vm.assume(payment >= MINT_PRICE && payment <= 10 ether);
         
         vm.prank(OWNER);
-        registrar.openMinting();
+        registrar.openMinting(true);
         
         vm.deal(USER1, payment);
         uint256 balanceBefore = USER1.balance;
@@ -603,7 +823,7 @@ contract AgentRegistrarTest is Test {
         vm.assume(count > 0 && count <= MAX_SUPPLY);
         
         vm.prank(OWNER);
-        registrar.openMinting();
+        registrar.openMinting(true);
         
         uint256 totalCost = MINT_PRICE * count;
         vm.deal(USER1, totalCost);
